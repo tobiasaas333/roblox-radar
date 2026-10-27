@@ -1,0 +1,58 @@
+name: Trend-Radar
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # jede Stunde zur Minute 17
+  workflow_dispatch:         # Knopf "Run workflow" zum Starten von Hand
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: trend-radar
+  cancel-in-progress: false
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v6
+
+      - name: Bisherige Messdaten laden
+        run: |
+          git clone --depth 1 --branch data \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data \
+            || mkdir -p data
+
+      - name: Messen und Seite bauen
+        run: python3 radar.py --data data --site site
+
+      - name: Messdaten speichern
+        run: |
+          cd data
+          rm -rf .git
+          git init -q -b data
+          git config user.name "trend-radar"
+          git config user.email "trend-radar@users.noreply.github.com"
+          git add -A
+          git commit -qm "Messung $(date -u +%Y-%m-%dT%H:%MZ)" || true
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data:data
+
+      - name: Seite vorbereiten
+        uses: actions/configure-pages@v6
+
+      - name: Seite hochladen
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Seite veröffentlichen
+        id: deploy
+        uses: actions/deploy-pages@v5
